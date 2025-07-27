@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -71,14 +72,16 @@ func nextDateHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		now, err = time.Parse(DateFormat, nowStr)
 		if err != nil {
-			http.Error(w, "Неверный формат now", http.StatusBadRequest)
+			log.Printf("invalid now format: %v", err)
+			http.Error(w, "invalid 'now' date format", http.StatusBadRequest)
 			return
 		}
 	}
 
 	next, err := NextDate(now, dstart, repeat)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Printf("next date calculation error: %v", err)
+		http.Error(w, fmt.Sprintf("next date calculation error: %v", err), http.StatusBadRequest)
 		return
 	}
 

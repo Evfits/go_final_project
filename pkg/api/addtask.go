@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -14,23 +15,30 @@ import (
 func addTaskHandler(w http.ResponseWriter, r *http.Request) {
 	var task db.Task
 	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
-		writeJSON(w, map[string]string{"error": "Ошибка разбора JSON"})
+		log.Printf("JSON decode error: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]string{"error": "invalid JSON format"})
 		return
 	}
 
 	if strings.TrimSpace(task.Title) == "" {
-		writeJSON(w, map[string]string{"error": "Не указан заголовок задачи"})
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]string{"error": "task title required"})
 		return
 	}
 
 	if err := checkDate(&task); err != nil {
+		log.Printf("date check error: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
 		writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
 	id, err := db.AddTask(&task)
 	if err != nil {
-		writeJSON(w, map[string]string{"error": err.Error()})
+		log.Printf("Database error: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSON(w, map[string]string{"error": "failed to add task"})
 		return
 	}
 
@@ -51,7 +59,7 @@ func checkDate(task *db.Task) error {
 
 	parsedDate, err := time.Parse(DateFormat, task.Date)
 	if err != nil {
-		return fmt.Errorf("Неверный формат даты")
+		return fmt.Errorf("wrong date format: %w", err)
 	}
 
 	// Сравнение только по дате, без учёта времени
@@ -61,7 +69,7 @@ func checkDate(task *db.Task) error {
 		} else {
 			next, err := NextDate(today, task.Date, task.Repeat)
 			if err != nil {
-				return fmt.Errorf("Ошибка правила repeat: %v", err)
+				return fmt.Errorf("repeat rule error: %w", err)
 			}
 			task.Date = next
 		}

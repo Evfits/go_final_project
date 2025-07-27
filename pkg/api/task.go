@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -21,7 +22,8 @@ func tasksHandler(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
 	tasks, err := db.Tasks(50, search)
 	if err != nil {
-		writeJSON(w, map[string]string{"error": err.Error()})
+		log.Printf("failed to get tasks: %v", err)
+		http.Error(w, `{"error":"failed to get tasks"}`, http.StatusInternalServerError)
 		return
 	}
 	if tasks == nil {
@@ -36,12 +38,15 @@ func tasksHandler(w http.ResponseWriter, r *http.Request) {
 func getTaskHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
-		writeJSON(w, map[string]string{"error": "Не указан идентификатор"})
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]string{"error": "task id is required"})
 		return
 	}
 	t, err := db.GetTask(id)
 	if err != nil {
-		writeJSON(w, map[string]string{"error": "Задача не найдена"})
+		log.Printf("task not found: %v", err)
+		w.WriteHeader(http.StatusNotFound)
+		writeJSON(w, map[string]string{"error": "task not found"})
 		return
 	}
 	writeJSON(w, t)
@@ -51,20 +56,27 @@ func getTaskHandler(w http.ResponseWriter, r *http.Request) {
 func editTaskHandler(w http.ResponseWriter, r *http.Request) {
 	var t db.Task
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		writeJSON(w, map[string]string{"error": "Ошибка разбора JSON"})
+		log.Printf("json decode error: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]string{"error": "invalid json format"})
 		return
 	}
 	if t.ID == "" || t.Title == "" {
-		writeJSON(w, map[string]string{"error": "Неверные данные"})
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]string{"error": "invalid task data"})
 		return
 	}
 
 	if err := checkDate(&t); err != nil {
+		log.Printf("date check error: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
 		writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
 	if err := db.UpdateTask(&t); err != nil {
+		log.Printf("update task error: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
 		writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
@@ -75,18 +87,23 @@ func editTaskHandler(w http.ResponseWriter, r *http.Request) {
 func doneTaskHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
-		writeJSON(w, map[string]string{"error": "не указан id"})
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]string{"error": "task id is required"})
 		return
 	}
 
 	task, err := db.GetTask(id)
 	if err != nil {
-		writeJSON(w, map[string]string{"error": "задача не найдена"})
+		log.Printf("task not found: %v", err)
+		w.WriteHeader(http.StatusNotFound)
+		writeJSON(w, map[string]string{"error": "task not found"})
 		return
 	}
 
 	if task.Repeat == "" {
 		if err := db.DeleteTask(id); err != nil {
+			log.Printf("delete task error: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
 			writeJSON(w, map[string]string{"error": err.Error()})
 			return
 		}
@@ -97,11 +114,15 @@ func doneTaskHandler(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	next, err := NextDate(now, task.Date, task.Repeat)
 	if err != nil {
+		log.Printf("repeat rule error: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
 		writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
 	if err := db.UpdateDate(next, id); err != nil {
+		log.Printf("update date error: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
 		writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
@@ -113,10 +134,13 @@ func doneTaskHandler(w http.ResponseWriter, r *http.Request) {
 func deleteTaskHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
-		writeJSON(w, map[string]string{"error": "не указан id"})
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]string{"error": "task id is required"})
 		return
 	}
 	if err := db.DeleteTask(id); err != nil {
+		log.Printf("delete task error: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
 		writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
@@ -135,6 +159,6 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		deleteTaskHandler(w, r)
 	default:
-		writeJSON(w, map[string]string{"error": "Метод не поддерживается"})
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
